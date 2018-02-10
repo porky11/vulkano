@@ -328,6 +328,8 @@ void main() {
     let mut previous_frame_end = Box::new(now(device.clone())) as Box<GpuFuture>;
 
     loop {
+        let now = std::time::Instant::now();
+        
         // It is important to call this function from time to time, otherwise resources will keep
         // accumulating and you will eventually reach an out of memory error.
         // Calling this function polls various fences in order to determine what the GPU has
@@ -384,7 +386,7 @@ void main() {
                 recreate_swapchain = true;
                 continue;
             },
-            Err(err) => panic!("{:?}", err)
+            Err(err) => panic!("Why here? Out of Date? {:?}", err)
         };
 
         // In order to draw, we have to build a *command buffer*. The command buffer object holds
@@ -396,7 +398,7 @@ void main() {
         //
         // Note that we have to pass a queue family when we create the command buffer. The command
         // buffer will only be executable on that given queue family.
-        let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).unwrap()
+        let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).expect("Command Buffer Builder")
             // Before we can draw, we have to *enter a render pass*. There are two methods to do
             // this: `draw_inline` and `draw_secondary`. The latter is a bit more advanced and is
             // not covered here.
@@ -404,9 +406,9 @@ void main() {
             // The third parameter builds the list of values to clear the attachments with. The API
             // is similar to the list of attachments when building the framebuffers, except that
             // only the attachments that use `load: Clear` appear in the list.
-            .begin_render_pass(framebuffers.as_ref().unwrap()[image_num].clone(), false,
+            .begin_render_pass(framebuffers.as_ref().expect("As ref")[image_num].clone(), false,
                                vec![[0.0, 0.0, 1.0, 1.0].into()])
-            .unwrap()
+            .expect("Command buffer render pass")
 
             // We are now inside the first subpass of the render pass. We add a draw command.
             //
@@ -424,19 +426,19 @@ void main() {
                       scissors: None,
                   },
                   vertex_buffer.clone(), (), ())
-            .unwrap()
+            .expect("draw")
 
             // We leave the render pass by calling `draw_end`. Note that if we had multiple
             // subpasses we could have called `next_inline` (or `next_secondary`) to jump to the
             // next subpass.
             .end_render_pass()
-            .unwrap()
+            .expect("Render pass")
 
             // Finish building the command buffer by calling `build`.
-            .build().unwrap();
+            .build().expect("built command buffer");
 
         let future = previous_frame_end.join(acquire_future)
-            .then_execute(queue.clone(), command_buffer).unwrap()
+            .then_execute(queue.clone(), command_buffer).expect("future")
 
             // The color output is now expected to contain our triangle. But in order to show it on
             // the screen, we have to *present* the image by calling `present`.
@@ -445,7 +447,7 @@ void main() {
             // present command at the end of the queue. This means that it will only be presented once
             // the GPU has finished executing the command buffer that draws the triangle.
             .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
-            .then_signal_fence_and_flush().unwrap();
+            .then_signal_fence_and_flush().expect("signal fence and flush");
         previous_frame_end = Box::new(future) as Box<_>;
 
         // Note that in more complex programs it is likely that one of `acquire_next_image`,
@@ -466,5 +468,24 @@ void main() {
             }
         });
         if done { return; }
+        {
+            use std::thread;
+            use std::time::Duration;
+            
+            let fps = 20;
+
+            let wait = Duration::from_millis(1000/fps);
+
+            let elapsed = now.elapsed();
+
+            if wait>elapsed {
+                thread::sleep(wait-elapsed);
+            } else {
+                println!{"Low performance!"};
+            }
+            let nanos = now.elapsed().subsec_nanos();
+            let fps = 1000000000/nanos;
+            //println!{"fps = {}", fps};
+        }
     }
 }
