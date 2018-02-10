@@ -55,6 +55,7 @@ use vulkano::swapchain::AcquireError;
 use vulkano::swapchain::SwapchainCreationError;
 use vulkano::sync::now;
 use vulkano::sync::GpuFuture;
+use vulkano::sync::FlushError;
 
 use std::iter;
 use std::sync::Arc;
@@ -328,7 +329,7 @@ void main() {
     let mut previous_frame_end = Box::new(now(device.clone())) as Box<GpuFuture>;
 
     loop {
-        let now = std::time::Instant::now();
+        let time = std::time::Instant::now();
         
         // It is important to call this function from time to time, otherwise resources will keep
         // accumulating and you will eventually reach an out of memory error.
@@ -437,7 +438,7 @@ void main() {
             // Finish building the command buffer by calling `build`.
             .build().expect("built command buffer");
 
-        let future = previous_frame_end.join(acquire_future)
+        let maybe_future = previous_frame_end.join(acquire_future)
             .then_execute(queue.clone(), command_buffer).expect("future")
 
             // The color output is now expected to contain our triangle. But in order to show it on
@@ -447,7 +448,16 @@ void main() {
             // present command at the end of the queue. This means that it will only be presented once
             // the GPU has finished executing the command buffer that draws the triangle.
             .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
-            .then_signal_fence_and_flush().expect("signal fence and flush");
+            .then_signal_fence_and_flush();
+        let future = match maybe_future  {
+            Ok(future) => future,
+            Err(FlushError::OutOfDate) => {
+                recreate_swapchain = true;
+                previous_frame_end = Box::new(now(device.clone())) as Box<GpuFuture>;
+                continue;
+            },
+            Err(other) => panic!(other)
+        };
         previous_frame_end = Box::new(future) as Box<_>;
 
         // Note that in more complex programs it is likely that one of `acquire_next_image`,
@@ -476,14 +486,14 @@ void main() {
 
             let wait = Duration::from_millis(1000/fps);
 
-            let elapsed = now.elapsed();
+            let elapsed = time.elapsed();
 
             if wait>elapsed {
                 thread::sleep(wait-elapsed);
             } else {
                 println!{"Low performance!"};
             }
-            let nanos = now.elapsed().subsec_nanos();
+            let nanos = time.elapsed().subsec_nanos();
             let fps = 1000000000/nanos;
             //println!{"fps = {}", fps};
         }
